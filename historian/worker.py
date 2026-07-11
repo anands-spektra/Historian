@@ -15,21 +15,55 @@ _TEMPLATE = Path(__file__).parent / "prompts" / "iteration.md"
 _BACKOFF = [2, 8, 30]  # seconds between provider retries
 
 
-def _acquire(paths):
-    """Minimal single-instance lock. (Stale-lock reclaim is Phase 6.)"""
+def _create_lock(paths):
+    fd = os.open(str(paths.lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.write(fd, str(os.getpid()).encode())
+    os.close(fd)
+
+
+def _lock_ttl(cfg):
+    # Must exceed one event's max provider time; the drain refreshes the lock's
+    # mtime after each event as a heartbeat. ponytail: TTL-based staleness (no
+    # os.kill liveness — signal 0 can terminate a process on Windows).
+    return max(cfg.get("provider_timeout_sec", 180) * 2, 300)
+
+
+def _acquire(paths, cfg):
+    """Single-instance lock with stale reclaim: a lock whose mtime is older than
+    the TTL belongs to a dead worker and is taken over."""
     try:
-        fd = os.open(str(paths.lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(fd, str(os.getpid()).encode())
-        os.close(fd)
+        _create_lock(paths)
         return True
     except FileExistsError:
-        return False
+        pass
+    try:
+        age = time.time() - paths.lock.stat().st_mtime
+    except FileNotFoundError:
+        age = None  # vanished between create and stat
+    if age is None or age > _lock_ttl(cfg):
+        try:
+            paths.lock.unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            _create_lock(paths)
+            return True
+        except FileExistsError:
+            return False
+    return False
 
 
 def _release(paths):
     try:
         paths.lock.unlink()
     except FileNotFoundError:
+        pass
+
+
+def _heartbeat(paths):
+    try:
+        os.utime(paths.lock, None)
+    except OSError:
         pass
 
 
@@ -115,8 +149,7 @@ def _dead_letter(paths, ev_path, err, log):
     log.error(f"dead-lettered {ev_path.name}: {err}")
 
 
-def _drain(paths, log):
-    cfg = config.load(paths)
+def _drain(paths, cfg, log):
     provider = get_provider(cfg["provider"])
     while True:
         events = sorted(p for p in paths.queue.glob("event-*.json") if p.suffix == ".json")
@@ -130,16 +163,18 @@ def _drain(paths, log):
             # this run so we don't churn the rest of the queue on a down provider.
             _dead_letter(paths, ev_path, e, log)
             break
+        _heartbeat(paths)  # keep the lock fresh across a long drain
 
 
 def run():
     paths = config.paths(config.find_root())
     log = get_logger(paths)
-    if not _acquire(paths):
+    cfg = config.load(paths)
+    if not _acquire(paths, cfg):
         log.info("worker already running; exiting")
         return 0
     try:
-        _drain(paths, log)
+        _drain(paths, cfg, log)
     finally:
         _release(paths)
     return 0

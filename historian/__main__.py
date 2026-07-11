@@ -57,6 +57,23 @@ def cmd_init():
     return 0
 
 
+def cmd_status():
+    p = config.paths(config.find_root())
+    if not p.historian.exists():
+        print("historian not initialized here (run: python -m historian init)")
+        return 1
+    state = config.read_state(p)
+    pending = len([x for x in p.queue.glob("event-*.json") if x.suffix == ".json"])
+    dead = len(list(p.dead.glob("event-*.json"))) if p.dead.exists() else 0
+    print(f"iterations captured : {state.get('iteration', 0)}")
+    print(f"last documented     : {state.get('last_documented', 0)}")
+    print(f"queue pending       : {pending}")
+    print(f"dead-lettered       : {dead}")
+    print(f"worker running      : {'yes' if p.lock.exists() else 'no'}")
+    print(f"last error          : {state.get('last_error') or 'none'}")
+    return 0
+
+
 def cmd_hook(event):
     from . import hooks
     if event == "prompt":
@@ -80,8 +97,10 @@ def main(argv=None):
     if cmd == "worker":
         from . import worker
         return worker.run()
-    if cmd in ("finalize", "status"):
-        print(f"historian: '{cmd}' not implemented yet", file=sys.stderr)
+    if cmd == "status":
+        return cmd_status()
+    if cmd == "finalize":
+        print("historian: 'finalize' not implemented yet", file=sys.stderr)
         return 0
     print("usage: python -m historian {init|hook <event>|worker|finalize|status}", file=sys.stderr)
     return 2

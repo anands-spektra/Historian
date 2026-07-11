@@ -1,0 +1,9 @@
+# Historian runtime state — never committed
+.historian/
+
+# Python
+__pycache__/
+*.pyc
+
+# Node (Gemini CLI, if ever used)
+node_modules/

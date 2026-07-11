@@ -77,7 +77,10 @@ def main(argv=None):
         return cmd_init()
     if cmd == "hook":
         return cmd_hook(argv[1] if len(argv) > 1 else "")
-    if cmd in ("worker", "finalize", "status"):
+    if cmd == "worker":
+        from . import worker
+        return worker.run()
+    if cmd in ("finalize", "status"):
         print(f"historian: '{cmd}' not implemented yet", file=sys.stderr)
         return 0
     print("usage: python -m historian {init|hook <event>|worker|finalize|status}", file=sys.stderr)

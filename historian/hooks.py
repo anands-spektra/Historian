@@ -6,7 +6,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import config, queue, shadowgit
+from . import config, queue, shadowgit, spawn
 from .log import get_logger
 
 
@@ -75,4 +75,8 @@ def stop():
     queue.enqueue(p, event)
     config.update_state(p, iteration=iteration, last_shadow_commit=new)
     log.info(f"iteration {iteration} enqueued: {prev} -> {new}, {len(prompts)} prompt(s)")
+    try:
+        spawn.spawn_detached([sys.executable, "-m", "historian", "worker"], p.root)
+    except Exception as e:
+        log.error(f"failed to spawn worker: {e}")  # event stays queued; next stop retries
     return 0

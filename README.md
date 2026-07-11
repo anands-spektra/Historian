@@ -1,97 +1,119 @@
 # AI Development Historian
 
-Automatically documents every Claude Code iteration so you can see **what
-changed, why, and how the architecture evolved** — without spending Claude's
-tokens on explanations. Each iteration is analyzed by a separate model
-(OpenCode + free Nemotron) and appended to `docs/implementation.md`. When the
-project is done, `finalize` generates architecture / knowledge-base / workflow
-docs.
+Documents your coding sessions as a series of **milestones you choose**. When
+you finish a meaningful piece of work, you run one command and a separate model
+(any CLI or API you configure) writes a senior-engineer-style entry into
+`docs/implementation.md`. When the project matures, `finalize` generates
+architecture / knowledge-base / workflow docs. The goal is to capture *what
+changed and why* without spending your coding assistant's tokens explaining it.
 
-See `DESIGN.md` for the full architecture and rationale.
+- **Manual, milestone-based** — you decide when an iteration is worth recording.
+- **Provider-agnostic** — OpenCode, Gemini CLI, Ollama, OpenAI/OpenRouter, or any custom command. Configured, not hard-coded.
+- **Local & git-independent** — a private *shadow* git repo captures changes; you never have to commit.
 
-## How it works
-
-```
-UserPromptSubmit hook  -> record the prompt
-Claude edits files
-Stop hook              -> snapshot changes (shadow git) + enqueue + spawn worker
-Worker (background)    -> diff -> model -> append "Iteration N" to implementation.md
-```
-
-Change capture uses a **shadow git repo** (`.historian/shadow.git`) separate
-from your real repo, so it works whether or not you commit. The worker runs
-detached, so Claude is never blocked; a broken historian never breaks Claude
-(hooks always exit 0).
-
-## Requirements
-
-- Python 3.8+ and `git` on PATH
-- [OpenCode](https://opencode.ai) authenticated with a provider that offers
-  `opencode/nemotron-3-ultra-free` (verify with `opencode models`). Swap the
-  model/provider in config if you prefer another.
-
-## Setup
+## Install once
 
 ```
-python -m historian init
+pipx install <path-to-this-repo>     # puts the `historian` CLI on PATH
+historian install                    # provisions the /historian* slash commands globally
 ```
 
-This creates `.historian/` (config, state, shadow repo), wires the hooks into
-`.claude/settings.json`, and adds `.historian/` to `.gitignore`. It is
-idempotent — safe to re-run.
+`historian install` writes the slash commands to `~/.claude/commands/`
+(override with `HISTORIAN_COMMANDS_DIR`). You only do this once per machine.
 
-> **Note:** Claude Code reads hook config at **session startup**. After the
-> first `init`, restart your Claude Code session so the hooks go live.
+## Use in any repository
+
+```
+historian init          # or /historian — creates .historian/ here (once per repo)
+# ... work with Claude Code for a while ...
+historian save "Add OAuth login"     # or /historian-save Add OAuth login
+```
+
+`save` snapshots the shadow repo, diffs against the previous save, and appends
+one "Iteration N" section to `docs/implementation.md`.
+
+> **Note:** Claude Code reads hook config at session startup. After the first
+> `init` in a repo, restart the session so the passive prompt-capture hook goes
+> live (it records your prompts so `save` can include them). `save` works either
+> way — the hook only enriches the "prompts" section.
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `python -m historian init` | Set up (or re-sync) the historian in this project |
-| `python -m historian status` | Iterations captured, queue depth, dead-letters, last error |
-| `python -m historian finalize` | Generate PROJECT_ARCHITECTURE / KNOWLEDGE_BASE / WORKFLOW docs |
-| `/historian-finalize` | Same as `finalize`, from inside Claude Code |
-
-`hook` and `worker` are invoked automatically by the hooks; you don't run them.
-
-## Configuration
-
-`.historian/config.json` (missing keys fall back to defaults):
-
-| Key | Default | Purpose |
+| Slash | CLI | Action |
 |---|---|---|
-| `provider` | `opencode` | Provider module in `historian/providers/` |
-| `model` | `opencode/nemotron-3-ultra-free` | Model passed to `opencode run -m` |
-| `opencode_deny_tools` | `true` | Deny agent tools so the model is a pure text transform |
-| `docs_dir` / `implementation_file` | `docs` / `implementation.md` | Output location |
-| `diff_cap_bytes` | `200000` | Diff size before truncation |
-| `provider_timeout_sec` | `180` | Per-call timeout |
-| `retry_cap` | `3` | Provider attempts before dead-lettering |
-| `skip_empty_iterations` | `true` | Skip iterations with no file changes |
-| `exclude_globs` | secrets + build dirs | Never captured or sent (see below) |
+| `/historian` | `historian init` | Initialize the current repo |
+| `/historian-save [title]` | `historian save [title]` | Document all changes since the last save as one iteration |
+| `/historian-status` | `historian status` | Provider, iterations, last documented, pending changes, paused |
+| `/historian-pause` | `historian pause` | Stop recording until resumed |
+| `/historian-resume` | `historian resume` | Resume recording |
+| `/historian-finalize` | `historian finalize` | Generate PROJECT_ARCHITECTURE / KNOWLEDGE_BASE / WORKFLOW docs |
 
-## Data residency & secrets
+## Providers & configuration
 
-Only the **prompt and diff** leave your machine (to the model provider);
-everything else stays local. `exclude_globs` (default includes `.env*`,
-`*.pem`, `*.key`, `*.pfx`) keeps matching files out of the shadow repo entirely,
-so they never appear in a diff or reach the provider. Add patterns for anything
-sensitive in your project. For a fully offline setup, point `provider` at a
-local model — no other changes needed.
+`.historian/config.json` (missing keys fall back to defaults). Two built-in
+providers cover almost everything:
+
+**`cli`** — runs any command, prompt on stdin, answer on stdout:
+
+```jsonc
+{ "provider": "cli", "command": "opencode",
+  "args": ["run", "-m", "opencode/nemotron-3-ultra-free"],
+  "env": { "OPENCODE_PERMISSION": "{\"edit\":\"deny\",\"bash\":\"deny\"}" } }
+```
+
+Presets (change `command`/`args` only):
+
+| Tool | command | args |
+|---|---|---|
+| OpenCode | `opencode` | `["run","-m","<model>"]` |
+| Gemini CLI | `gemini` | `["-m","gemini-2.5-pro","-p"]` |
+| Ollama | `ollama` | `["run","llama3.3"]` |
+
+**`api`** — OpenAI-compatible HTTP (OpenAI, OpenRouter, Ollama `/v1`):
+
+```jsonc
+{ "provider": "api", "model": "gpt-4o-mini",
+  "api": { "base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY" } }
+```
+
+Other keys: `timeout_sec`, `retry_cap`, `diff_cap_bytes`, `skip_empty_iterations`,
+`docs_dir`, `implementation_file`, `prompt_template`, `exclude_globs`.
+
+## Architecture (at a glance)
+
+| Module | Role |
+|---|---|
+| `__main__.py` | CLI dispatch + command functions (install/init/save/status/pause/resume/finalize/hook) |
+| `config.py` | config defaults, path resolution, state; legacy-key shims |
+| `shadowgit.py` | the shadow git repo: snapshot / diff / status |
+| `collector.py` | build the model payload (prompts, file buckets, diffstat, capped diff) |
+| `document.py` | render the iteration template, call the provider (retry/backoff), append the section |
+| `finalize.py` | generate the three summary docs |
+| `providers/` | `get_provider(name)`; `cli`, `api`, `stub` — one `analyze(prompt, cfg)` contract |
+| `prompts/` | the iteration + finalize templates |
+
+Flow: `save` → `shadowgit.snapshot` → `collector.build_payload` → `document.generate`
+(→ provider) → append to `docs/implementation.md` → advance the snapshot.
 
 ## Extending
 
-- **New model provider:** add `historian/providers/<name>.py` exposing
-  `analyze(prompt, cfg) -> str`, then set `"provider": "<name>"`.
-- **Change per-iteration content:** edit `historian/prompts/iteration.md`.
+- **New provider:** add `historian/providers/<name>.py` with `analyze(prompt, cfg) -> str`, set `"provider": "<name>"`. Nothing else changes.
+- **Change iteration content:** edit `historian/prompts/iteration.md`.
 - **Change final docs:** edit the templates in `historian/prompts/`.
+
+## Data residency & secrets
+
+Only the prompt and diff leave your machine (to the provider you configure).
+`exclude_globs` (default: `.env*`, `*.pem`, `*.key`, `*.pfx`, build dirs) keeps
+matching files out of the shadow repo, so they never appear in a diff or reach
+the provider. The historian's own `docs/` output is excluded too, so it never
+documents itself. For a fully local setup, point `provider` at Ollama or a local
+API — no other change needed.
 
 ## Cross-platform
 
-Windows-first, but cross-platform: the detached worker uses
-`DETACHED_PROCESS` on Windows and `start_new_session=True` on POSIX; queue
-writes are atomic via temp+rename on both. stdin is decoded as `utf-8-sig` to
-tolerate a BOM from some shells.
+Windows-first, cross-platform. stdin is decoded as `utf-8-sig` to tolerate a
+BOM from some shells. Requires Python 3.8+ and `git` on PATH.
 
 ## Test
 

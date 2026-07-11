@@ -8,7 +8,7 @@ from pathlib import Path
 from . import config
 from .log import get_logger
 from .providers import get_provider
-from .document import _analyze_with_retry
+from .document import analyze_with_retry
 
 _PROMPTS = Path(__file__).parent / "prompts"
 _CONTEXT_CAP = 400_000          # byte budget for source excerpts
@@ -95,7 +95,7 @@ def run():
         tpl = (_PROMPTS / tpl_name).read_text(encoding="utf-8")
         prompt = tpl.replace("[[CONTEXT]]", context)
         print(f"generating {out_name} ...")
-        result = _analyze_with_retry(provider, prompt, cfg, log, out_name)
+        result = analyze_with_retry(provider, prompt, cfg, log, out_name)
         (docs_dir / out_name).write_text(result.strip() + "\n", encoding="utf-8")
         print(f"  wrote {docs_dir / out_name}")
     return 0

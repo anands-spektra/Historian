@@ -43,7 +43,7 @@ def _render_prompt(cfg, payload):
     return tpl
 
 
-def _analyze_with_retry(provider, prompt, cfg, log, label):
+def analyze_with_retry(provider, prompt, cfg, log, label):
     attempts = max(1, cfg.get("retry_cap", 3))
     for i in range(attempts):
         try:
@@ -74,6 +74,6 @@ def generate(paths, cfg, event, log):
     if cfg.get("skip_empty_iterations") and empty:
         return False
     provider = get_provider(cfg["provider"])
-    analysis = _analyze_with_retry(provider, _render_prompt(cfg, payload), cfg, log, event["iteration"])
+    analysis = analyze_with_retry(provider, _render_prompt(cfg, payload), cfg, log, event["iteration"])
     _append_section(paths, cfg, payload, analysis)
     return True

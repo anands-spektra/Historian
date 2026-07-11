@@ -1,5 +1,11 @@
 # AI Development Historian — Engineering Design Document
 
+> ⚠️ **HISTORICAL (v1).** This describes the original *automatic, OpenCode-coupled*
+> design with a queue/worker/spawn pipeline. The project was later refactored to
+> be **manual and provider-agnostic** (auto hooks, worker, queue, and spawn were
+> removed). For the **current** design see `README.md` (architecture + usage) and
+> `REFACTOR_PLAN.md` (the v1→v2 refactor, phases R1–R7). Kept for history.
+
 **Status:** Design (no implementation)
 **Author role:** Principal Software Architect / AI Automation Engineer
 **Implementer:** Claude Opus 4.8, phase by phase

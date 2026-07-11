@@ -63,11 +63,8 @@ def paths(root):
         state=h / "state.json",
         shadow_git=h / "shadow.git",
         shadow_excludes=h / "shadow.excludes",
-        queue=h / "queue",
-        dead=h / "dead",
         session=h / "session",
         prompts=h / "session" / "prompts.jsonl",
-        lock=h / "worker.lock",
         log=h / "historian.log",
     )
 
@@ -91,12 +88,19 @@ def load(paths):
 
 def ensure_layout(paths):
     """Create dirs and write config.json / state.json if absent. Idempotent."""
-    for d in (paths.historian, paths.queue, paths.dead, paths.session):
+    for d in (paths.historian, paths.session):
         d.mkdir(parents=True, exist_ok=True)
     if not paths.config.exists():
         _write_json(paths.config, DEFAULTS)
     if not paths.state.exists():
-        _write_json(paths.state, {"iteration": 0, "last_shadow_commit": None, "last_error": None})
+        _write_json(paths.state, {"iteration": 0, "last_shadow_commit": None,
+                                  "last_documented": 0, "last_error": None, "paused": False})
+
+
+def effective_excludes(cfg):
+    """exclude_globs plus the docs output dir — the historian must never track or
+    document its own generated docs (that would self-document forever)."""
+    return list(cfg.get("exclude_globs", [])) + [cfg.get("docs_dir", "docs").rstrip("/") + "/"]
 
 
 def write_excludes(paths, globs):

@@ -144,3 +144,78 @@ The original design generated an iteration automatically after every Claude resp
 
 ---
 
+## Iteration 2 - 2026-07-11T17:35:49+05:30
+
+### User Prompt
+"ok lets start R1 phase" — begin the first refactor phase (R1) of the provider-agnostic refactor initiated in Iteration 1.
+
+### Summary of Changes
+This iteration replaces the hardcoded OpenCode provider with a generic provider abstraction layer. The OpenCode-specific provider (`providers/opencode.py`) is removed and replaced by two generic providers: `cli.py` (runs any command that reads prompt from stdin, writes response to stdout) and `api.py` (OpenAI-compatible HTTP endpoint). Configuration is migrated to a generic schema (`provider`, `command`, `args`, `model`, `timeout_sec`, `env`, `api`, `prompt_template`) with a backward-compatibility shim that maps legacy OpenCode-specific keys (`opencode_command`, `opencode_deny_tools`, `provider_timeout_sec`) onto the new schema. The worker's lock TTL calculation is updated to use the new `timeout_sec` config key with a fallback to the legacy `provider_timeout_sec`.
+
+### Files Created / Modified / Deleted
+
+**Created:**
+- `docs/implementation.md` — Iteration 1 documentation (146 lines)
+- `historian/providers/api.py` — OpenAI-compatible HTTP provider using stdlib `urllib`
+- `historian/providers/cli.py` — Generic CLI provider (stdin/stdout, configurable command/args/env)
+
+**Modified:**
+- `historian/config.py` — New generic config schema with legacy key migration shim (`_apply_legacy`)
+- `historian/worker.py` — Lock TTL now reads `timeout_sec` (with legacy fallback)
+
+**Deleted:**
+- `historian/providers/opencode.py` — OpenCode-specific provider (replaced by generic `cli` provider)
+
+### What Was Implemented
+
+1. **Provider abstraction layer** (`providers/__init__.py` unchanged, but registry pattern established in Iteration 1): two new provider modules implement the `analyze(prompt, cfg) -> str` interface:
+   - `cli.py`: Runs `command + args` with prompt on stdin, captures stdout. Config-driven: `command`, `args`, `env`, `timeout_sec`. Covers OpenCode, Gemini CLI, Codex, Ollama CLI, custom scripts.
+   - `api.py`: POSTs to OpenAI-compatible `/chat/completions` endpoint using stdlib `urllib`. Config-driven: `api.base_url`, `api.api_key_env`, `model`, `timeout_sec`. Covers OpenAI, OpenRouter, Ollama `/v1`, any compatible endpoint.
+
+2. **Config migration shim** (`config.py:_apply_legacy`): Detects legacy `provider: "opencode"` and maps:
+   - `opencode_command` → `command`
+   - `model` + `opencode_command` → `args: ["run", "-m", <model>]`
+   - `opencode_deny_tools: true` → `env.OPENCODE_PERMISSION = '{"edit":"deny","bash":"deny","webfetch":"deny"}'`
+   - `provider_timeout_sec` → `timeout_sec`
+   This allows existing `.historian/config.json` files to work unchanged.
+
+3. **Worker lock TTL update** (`worker.py:_lock_ttl`): Reads `cfg.get("timeout_sec", cfg.get("provider_timeout_sec", 180)) * 2` with 300s minimum, aligning with new config key.
+
+### Why It Was Needed
+Iteration 1 established the provider-agnostic architecture but left the OpenCode provider as the sole implementation. R1 phase delivers the actual provider implementations that make the abstraction real: a generic CLI provider covering all CLI-based tools and an OpenAI-compatible HTTP provider covering all API-based providers. The config migration shim ensures zero-downtime upgrade for existing users.
+
+### Important Classes / Functions Introduced
+- `historian/providers/cli.py:analyze(prompt, cfg)` — Generic CLI provider, runs configured command with stdin/stdout
+- `historian/providers/api.py:analyze(prompt, cfg)` — OpenAI-compatible HTTP provider using stdlib `urllib`
+- `historian/config.py:_apply_legacy(filecfg)` — Legacy config key migration shim (non-migrating, applied at load time)
+
+### Important Design Decisions
+1. **Provider interface remains a single function** — `analyze(prompt, cfg) -> str` keeps extension trivial (drop a `.py` in `providers/`).
+2. **CLI provider uses stdin for prompt** — Avoids command-line length limits; works for any tool accepting stdin.
+3. **API provider uses stdlib only** — Zero dependencies; works with OpenAI, OpenRouter, Ollama, local LLMs.
+4. **Legacy config shim at load time, not migration** — `_apply_legacy` runs inside `load()` each time; original `config.json` never rewritten. Zero risk of corrupting user config.
+5. **Lock TTL derives from provider timeout** — Worker lock outlives a single provider call (2x timeout, min 5min) so crash mid-call doesn't trigger premature lock steal.
+
+### Before vs After Behavior
+
+| Aspect | Before (Iteration 1) | After (Iteration 2) |
+|--------|---------------------|---------------------|
+| Provider | Hardcoded `opencode.py` only | Pluggable: `cli`, `api`, `stub`, or custom |
+| Config keys | `provider`, `model`, `opencode_command`, `opencode_deny_tools`, `provider_timeout_sec` | Generic: `provider`, `command`, `args`, `model`, `timeout_sec`, `env`, `api`, `prompt_template` |
+| OpenCode usage | Hardcoded `opencode run -m <model>` with `OPENCODE_PERMISSION` | Config-driven: `provider: "cli"`, `command: "opencode"`, `args: ["run", "-m", "model"]`, `env.OPENCODE_PERMISSION` |
+| HTTP API providers | Not supported | Supported via `provider: "api"` + `api.base_url`, `api.api_key_env`, `model` |
+| Config migration | Manual (user edits config.json) | Automatic at load time via `_apply_legacy` |
+
+### Possible Risks
+1. **Legacy shim only handles `provider: "opencode"`** — If a user had custom provider name but used OpenCode keys, migration won't trigger. Low risk (Iteration 1 only shipped OpenCode).
+2. **CLI provider assumes stdin/stdout protocol** — Tools requiring prompt as CLI arg (not stdin) won't work without wrapper script. Mitigation: user can write a thin wrapper.
+3. **API provider requires `model` in config** — No default; will raise `RuntimeError` if missing. Fail-fast is intentional.
+4. **Lock TTL uses `timeout_sec * 2`** — If provider hangs beyond timeout but process doesn't exit, lock may be reclaimed mid-call. Worker refreshes lock mtime after each event as heartbeat.
+
+### What You Should Understand as the Developer
+1. **Adding a new provider = one file in `providers/`** — Implement `analyze(prompt, cfg)`, register nothing else. The registry uses `importlib.import_module(f"historian.providers.{name}")`.
+2. **Config is the contract** — Provider behavior is entirely config-driven. `cli` provider runs whatever `command + args` you give it. `api` provider hits whatever `base_url` you configure.
+3. **Legacy configs just work** — `_apply_legacy` runs on every load. Users upgrading from Iteration 1 don't touch their config.
+
+---
+

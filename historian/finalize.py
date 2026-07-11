@@ -8,7 +8,7 @@ from pathlib import Path
 from . import config
 from .log import get_logger
 from .providers import get_provider
-from .worker import _analyze_with_retry
+from .document import _analyze_with_retry
 
 _PROMPTS = Path(__file__).parent / "prompts"
 _CONTEXT_CAP = 400_000          # byte budget for source excerpts
@@ -69,7 +69,7 @@ def _source_excerpts(root, files):
 
 
 def _build_context(paths, cfg, impl_text):
-    globs = cfg.get("exclude_globs", [])
+    globs = config.effective_excludes(cfg)
     files = _file_tree(paths.root, globs)
     tree = "\n".join(files)
     return (f"== FILE TREE ==\n{tree}\n\n"

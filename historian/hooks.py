@@ -1,13 +1,12 @@
-"""Fast-path hook handlers. Run in-process with Claude Code, so they do the
-minimum and always exit 0 (the outer wrapper in __main__ guarantees that).
-No Gemini/OpenCode calls here — heavy work is the worker's job (Phase 4)."""
+"""Passive prompt capture. The only hook the historian installs: it appends
+each user prompt to session/prompts.jsonl so `save` can bundle "prompts since
+last iteration". It never generates iterations and always exits 0."""
 
 import json
 import sys
 from datetime import datetime, timezone
 
-from . import config, queue, shadowgit, spawn
-from .log import get_logger
+from . import config
 
 
 def _now():
@@ -36,8 +35,8 @@ def prompt():
     return 0
 
 
-def _drain_prompts(paths):
-    """Read accumulated prompts and roll the file so the next iteration starts clean."""
+def drain_prompts(paths):
+    """Return accumulated prompts and roll the file so the next iteration starts clean."""
     if not paths.prompts.exists():
         return []
     out = []
@@ -51,32 +50,3 @@ def _drain_prompts(paths):
             pass
     paths.prompts.unlink()
     return out
-
-
-def stop():
-    """Stop: snapshot the shadow repo and enqueue an iteration event.
-    No worker spawn yet (Phase 4)."""
-    data = _stdin_json()
-    p = config.paths(config.find_root())
-    log = get_logger(p)
-    state = config.read_state(p)
-    iteration = state.get("iteration", 0) + 1
-    prev = state.get("last_shadow_commit")
-    new = shadowgit.snapshot(p, f"historian: iteration {iteration}")
-    prompts = _drain_prompts(p)
-    event = {
-        "iteration": iteration,
-        "ts": _now(),
-        "session_id": data.get("session_id"),
-        "prompts": prompts,
-        "prev_commit": prev,
-        "new_commit": new,
-    }
-    queue.enqueue(p, event)
-    config.update_state(p, iteration=iteration, last_shadow_commit=new)
-    log.info(f"iteration {iteration} enqueued: {prev} -> {new}, {len(prompts)} prompt(s)")
-    try:
-        spawn.spawn_detached([sys.executable, "-m", "historian", "worker"], p.root)
-    except Exception as e:
-        log.error(f"failed to spawn worker: {e}")  # event stays queued; next stop retries
-    return 0

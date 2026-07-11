@@ -1,19 +1,22 @@
 """CLI entry point.  python -m historian <command>
 
-Commands: init | hook <event> | worker | finalize | status
-Only `init` and a no-op `hook` are implemented in Phase 1."""
+Commands: init | save [title] | status | finalize | hook <event>
+Iterations are manual: `save` documents everything since the last save.
+The only hook installed is a passive prompt logger."""
 
 import json
 import sys
 from pathlib import Path
 
 from . import config, shadowgit
+from .log import get_logger
 
-HOOKS = {"UserPromptSubmit": "prompt", "Stop": "stop"}
+# Only a passive prompt-capture hook is installed; iterations are manual.
+HOOKS = {"UserPromptSubmit": "prompt"}
 
 
 def _ensure_claude_hooks(root):
-    """Idempotently wire the two Claude Code hooks into .claude/settings.json."""
+    """Idempotently wire the passive prompt hook into .claude/settings.json."""
     settings = root / ".claude" / "settings.json"
     settings.parent.mkdir(parents=True, exist_ok=True)
     data = {}
@@ -44,7 +47,7 @@ def cmd_init():
     p = config.paths(root)
     config.ensure_layout(p)
     cfg = config.load(p)
-    config.write_excludes(p, cfg["exclude_globs"])
+    config.write_excludes(p, config.effective_excludes(cfg))
     _ensure_claude_hooks(root)
     _ensure_gitignore(root)
     if not shadowgit.is_initialized(p):
@@ -57,20 +60,53 @@ def cmd_init():
     return 0
 
 
+def cmd_save(title):
+    from . import document, hooks
+    p = config.paths(config.find_root())
+    if not p.historian.exists():
+        print("historian not initialized here (run: python -m historian init)")
+        return 1
+    cfg = config.load(p)
+    log = get_logger(p)
+    state = config.read_state(p)
+    if state.get("paused"):
+        print("historian is paused (run: python -m historian resume)")
+        return 0
+
+    iteration = state.get("iteration", 0) + 1
+    prev = state.get("last_shadow_commit")
+    new = shadowgit.snapshot(p, f"historian: save {iteration}")
+    event = {"iteration": iteration, "ts": hooks._now(), "session_id": None,
+             "title": title, "prompts": [r.get("prompt", "") for r in hooks.drain_prompts(p)],
+             "prev_commit": prev, "new_commit": new}
+    try:
+        documented = document.generate(p, cfg, event, log)
+    except Exception as e:
+        config.update_state(p, last_error=str(e))
+        print(f"save failed: {e}")
+        return 1
+    if not documented:
+        config.update_state(p, last_shadow_commit=new)  # advance baseline; no iteration
+        print("no changes since last save - nothing to document")
+        return 0
+    config.update_state(p, iteration=iteration, last_shadow_commit=new,
+                        last_documented=iteration, last_error=None)
+    print(f"saved iteration {iteration}")
+    return 0
+
+
 def cmd_status():
     p = config.paths(config.find_root())
     if not p.historian.exists():
         print("historian not initialized here (run: python -m historian init)")
         return 1
+    cfg = config.load(p)
     state = config.read_state(p)
-    pending = len([x for x in p.queue.glob("event-*.json") if x.suffix == ".json"])
-    dead = len(list(p.dead.glob("event-*.json"))) if p.dead.exists() else 0
-    print(f"iterations captured : {state.get('iteration', 0)}")
-    print(f"last documented     : {state.get('last_documented', 0)}")
-    print(f"queue pending       : {pending}")
-    print(f"dead-lettered       : {dead}")
-    print(f"worker running      : {'yes' if p.lock.exists() else 'no'}")
-    print(f"last error          : {state.get('last_error') or 'none'}")
+    print(f"provider          : {cfg.get('provider')} ({cfg.get('model')})")
+    print(f"iterations saved  : {state.get('iteration', 0)}")
+    print(f"last documented   : {state.get('last_documented', 0)}")
+    print(f"paused            : {'yes' if state.get('paused') else 'no'}")
+    print(f"last error        : {state.get('last_error') or 'none'}")
     return 0
 
 
@@ -78,9 +114,7 @@ def cmd_hook(event):
     from . import hooks
     if event == "prompt":
         return hooks.prompt()
-    if event == "stop":
-        return hooks.stop()
-    try:  # unknown event: drain stdin, exit 0
+    try:  # any other event (e.g. a leftover Stop hook): drain stdin, exit 0
         sys.stdin.read()
     except Exception:
         pass
@@ -92,17 +126,16 @@ def main(argv=None):
     cmd = argv[0] if argv else ""
     if cmd == "init":
         return cmd_init()
-    if cmd == "hook":
-        return cmd_hook(argv[1] if len(argv) > 1 else "")
-    if cmd == "worker":
-        from . import worker
-        return worker.run()
+    if cmd == "save":
+        return cmd_save(" ".join(argv[1:]).strip() or None)
     if cmd == "status":
         return cmd_status()
     if cmd == "finalize":
         from . import finalize
         return finalize.run()
-    print("usage: python -m historian {init|hook <event>|worker|finalize|status}", file=sys.stderr)
+    if cmd == "hook":
+        return cmd_hook(argv[1] if len(argv) > 1 else "")
+    print("usage: python -m historian {init|save [title]|status|finalize|hook <event>}", file=sys.stderr)
     return 2
 
 

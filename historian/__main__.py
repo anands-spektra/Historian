@@ -100,8 +100,8 @@ def main(argv=None):
     if cmd == "status":
         return cmd_status()
     if cmd == "finalize":
-        print("historian: 'finalize' not implemented yet", file=sys.stderr)
-        return 0
+        from . import finalize
+        return finalize.run()
     print("usage: python -m historian {init|hook <event>|worker|finalize|status}", file=sys.stderr)
     return 2
 

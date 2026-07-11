@@ -49,6 +49,7 @@ def build_payload(paths, event, cfg):
     return {
         "iteration": event["iteration"],
         "ts": event.get("ts"),
+        "title": event.get("title"),
         "prompts": [p.get("prompt", "") for p in event.get("prompts", [])],
         "files": _parse_name_status(shadowgit.name_status(paths, a, b)),
         "diffstat": shadowgit.diffstat(paths, a, b),

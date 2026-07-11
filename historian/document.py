@@ -59,7 +59,9 @@ def _append_section(paths, cfg, payload, analysis):
     docs = paths.root / cfg["docs_dir"]
     docs.mkdir(parents=True, exist_ok=True)
     impl = docs / cfg["implementation_file"]
-    header = f"## Iteration {payload['iteration']} - {payload['ts']}\n\n"
+    title = payload.get("title")
+    head = f"Iteration {payload['iteration']}: {title}" if title else f"Iteration {payload['iteration']} - {payload['ts']}"
+    header = f"## {head}\n\n"
     with impl.open("a", encoding="utf-8") as f:
         f.write(header + analysis.strip() + "\n\n---\n\n")
 

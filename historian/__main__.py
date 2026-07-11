@@ -77,7 +77,7 @@ def cmd_save(title):
     prev = state.get("last_shadow_commit")
     new = shadowgit.snapshot(p, f"historian: save {iteration}")
     event = {"iteration": iteration, "ts": hooks._now(), "session_id": None,
-             "title": title, "prompts": [r.get("prompt", "") for r in hooks.drain_prompts(p)],
+             "title": title, "prompts": hooks.drain_prompts(p),  # records; collector extracts text
              "prev_commit": prev, "new_commit": new}
     try:
         documented = document.generate(p, cfg, event, log)

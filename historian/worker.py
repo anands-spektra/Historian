@@ -25,7 +25,7 @@ def _lock_ttl(cfg):
     # Must exceed one event's max provider time; the drain refreshes the lock's
     # mtime after each event as a heartbeat. ponytail: TTL-based staleness (no
     # os.kill liveness — signal 0 can terminate a process on Windows).
-    return max(cfg.get("provider_timeout_sec", 180) * 2, 300)
+    return max(cfg.get("timeout_sec", cfg.get("provider_timeout_sec", 180)) * 2, 300)
 
 
 def _acquire(paths, cfg):

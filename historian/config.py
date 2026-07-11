@@ -5,15 +5,20 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+_DENY_TOOLS = '{"edit":"deny","bash":"deny","webfetch":"deny"}'
+
 DEFAULTS = {
-    "provider": "opencode",
+    "provider": "cli",                       # cli | api | stub | <custom module>
+    "command": "opencode",                   # cli providers
+    "args": ["run", "-m", "opencode/nemotron-3-ultra-free"],
     "model": "opencode/nemotron-3-ultra-free",
-    "opencode_command": "opencode",
-    "opencode_deny_tools": True,
+    "timeout_sec": 180,
+    "env": {"OPENCODE_PERMISSION": _DENY_TOOLS},
+    "api": {"base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY"},
+    "prompt_template": "iteration.md",
     "docs_dir": "docs",
     "implementation_file": "implementation.md",
     "diff_cap_bytes": 200000,
-    "provider_timeout_sec": 180,
     "retry_cap": 3,
     "skip_empty_iterations": True,
     "exclude_globs": [
@@ -21,6 +26,22 @@ DEFAULTS = {
         "*.env", ".env*", "*.pem", "*.key", "*.pfx", "*.log",
     ],
 }
+
+
+def _apply_legacy(filecfg):
+    """Map pre-R1 (OpenCode-specific) config keys onto the generic schema so an
+    existing .historian/config.json keeps working. ponytail: shim, not a migration."""
+    if filecfg.get("provider") == "opencode":
+        filecfg["provider"] = "cli"
+        filecfg.setdefault("command", filecfg.get("opencode_command", "opencode"))
+        if not filecfg.get("args"):
+            model = filecfg.get("model", "opencode/nemotron-3-ultra-free")
+            filecfg["args"] = ["run", "-m", model]
+        if filecfg.get("opencode_deny_tools", True):
+            filecfg.setdefault("env", {}).setdefault("OPENCODE_PERMISSION", _DENY_TOOLS)
+    if "provider_timeout_sec" in filecfg and "timeout_sec" not in filecfg:
+        filecfg["timeout_sec"] = filecfg["provider_timeout_sec"]
+    return filecfg
 
 
 def find_root(start=None):
@@ -63,8 +84,9 @@ def _write_json(p, obj):
 
 
 def load(paths):
-    """Effective config: DEFAULTS overlaid with config.json (missing keys default)."""
-    return {**DEFAULTS, **_read_json(paths.config, {})}
+    """Effective config: DEFAULTS overlaid with config.json (missing keys default),
+    with legacy key shims applied to the file config first."""
+    return {**DEFAULTS, **_apply_legacy(_read_json(paths.config, {}))}
 
 
 def ensure_layout(paths):

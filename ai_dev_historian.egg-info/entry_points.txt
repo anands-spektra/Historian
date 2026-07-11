@@ -1,0 +1,2 @@
+[console_scripts]
+historian = historian.__main__:main

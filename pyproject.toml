@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-dev-historian"
+version = "0.2.0"
+description = "AI Development Historian — manual, provider-agnostic milestone documentation for coding sessions."
+requires-python = ">=3.8"
+dependencies = []          # stdlib only
+
+[project.scripts]
+historian = "historian.__main__:main"
+
+[tool.setuptools]
+packages = ["historian", "historian.providers"]
+
+[tool.setuptools.package-data]
+historian = ["prompts/*.md"]

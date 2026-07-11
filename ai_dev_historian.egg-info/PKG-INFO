@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: ai-dev-historian
+Version: 0.2.0
+Summary: AI Development Historian — manual, provider-agnostic milestone documentation for coding sessions.
+Requires-Python: >=3.8

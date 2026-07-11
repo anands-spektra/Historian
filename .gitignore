@@ -7,3 +7,7 @@ __pycache__/
 
 # Node (Gemini CLI, if ever used)
 node_modules/
+
+# Python build artifacts
+build/
+*.egg-info/

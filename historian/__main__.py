@@ -57,9 +57,12 @@ def cmd_init():
 
 
 def cmd_hook(event):
-    """Phase 1: no-op. Consume stdin so Claude's pipe closes cleanly, exit 0.
-    Real capture arrives in Phase 2."""
-    try:
+    from . import hooks
+    if event == "prompt":
+        return hooks.prompt()
+    if event == "stop":
+        return hooks.stop()
+    try:  # unknown event: drain stdin, exit 0
         sys.stdin.read()
     except Exception:
         pass

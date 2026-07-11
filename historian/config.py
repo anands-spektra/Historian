@@ -2,6 +2,7 @@
 .historian/ in the project root. stdlib only."""
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,10 +14,11 @@ DEFAULTS = {
     "args": ["run", "-m", "opencode/nemotron-3-ultra-free"],
     "model": "opencode/nemotron-3-ultra-free",
     "timeout_sec": 180,
+    "stream": True,                          # show model output live while it runs
     "env": {"OPENCODE_PERMISSION": _DENY_TOOLS},
     "api": {"base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY"},
     "prompt_template": "iteration.md",
-    "docs_dir": "docs",
+    "docs_dir": "historian-docs",
     "implementation_file": "implementation.md",
     "diff_cap_bytes": 200000,
     "retry_cap": 3,
@@ -86,12 +88,33 @@ def load(paths):
     return {**DEFAULTS, **_apply_legacy(_read_json(paths.config, {}))}
 
 
-def ensure_layout(paths):
-    """Create dirs and write config.json / state.json if absent. Idempotent."""
+def global_config_path():
+    """Machine-wide default config chosen at `historian install` time. Kept under
+    ~/.claude/historian/ (NOT a .historian dir, so it can't confuse find_root)."""
+    base = os.environ.get("HISTORIAN_HOME")
+    root = Path(base) if base else (Path.home() / ".claude" / "historian")
+    return root / "config.json"
+
+
+def load_global():
+    """The install-time default, or DEFAULTS if the user never ran install."""
+    return {**DEFAULTS, **_read_json(global_config_path(), {})}
+
+
+def write_global(cfg):
+    p = global_config_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(p, cfg)
+
+
+def ensure_layout(paths, base=None):
+    """Create dirs and write config.json / state.json if absent. Idempotent.
+    `base` is the config to seed a new repo with (defaults to DEFAULTS; init
+    passes the install-time global default)."""
     for d in (paths.historian, paths.session):
         d.mkdir(parents=True, exist_ok=True)
     if not paths.config.exists():
-        _write_json(paths.config, DEFAULTS)
+        _write_json(paths.config, base or DEFAULTS)
     if not paths.state.exists():
         _write_json(paths.state, {"iteration": 0, "last_shadow_commit": None,
                                   "last_documented": 0, "last_error": None, "paused": False})

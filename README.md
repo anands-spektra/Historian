@@ -3,9 +3,10 @@
 Documents your coding sessions as a series of **milestones you choose**. When
 you finish a meaningful piece of work, you run one command and a separate model
 (any CLI or API you configure) writes a senior-engineer-style entry into
-`docs/implementation.md`. When the project matures, `finalize` generates
-architecture / knowledge-base / workflow docs. The goal is to capture *what
+`historian-docs/implementation.md`. When the project matures, `finalize` generates
+architecture / knowledge-base / summary docs. The goal is to capture *what
 changed and why* without spending your coding assistant's tokens explaining it.
+You watch the model write each entry live in your terminal.
 
 - **Manual, milestone-based** — you decide when an iteration is worth recording.
 - **Provider-agnostic** — OpenCode, Gemini CLI, Ollama, OpenAI/OpenRouter, or any custom command. Configured, not hard-coded.
@@ -18,8 +19,11 @@ pipx install <path-to-this-repo>     # puts the `historian` CLI on PATH
 historian install                    # provisions the /historian* slash commands globally
 ```
 
-`historian install` writes the slash commands to `~/.claude/commands/`
-(override with `HISTORIAN_COMMANDS_DIR`). You only do this once per machine.
+`historian install` **asks which AI provider to use** (OpenCode, Gemini, Ollama,
+OpenAI, OpenRouter, or configure-later), saves it as your machine-wide default,
+and writes the slash commands to `~/.claude/commands/` (override with
+`HISTORIAN_COMMANDS_DIR`). You only do this once per machine. Every repo you
+`init` inherits that default and can override it in its own `.historian/config.json`.
 
 ## Use in any repository
 
@@ -30,7 +34,7 @@ historian save "Add OAuth login"     # or /historian-save Add OAuth login
 ```
 
 `save` snapshots the shadow repo, diffs against the previous save, and appends
-one "Iteration N" section to `docs/implementation.md`.
+one "Iteration N" section to `historian-docs/implementation.md`.
 
 > **Note:** Claude Code reads hook config at session startup. After the first
 > `init` in a repo, restart the session so the passive prompt-capture hook goes
@@ -46,7 +50,7 @@ one "Iteration N" section to `docs/implementation.md`.
 | `/historian-status` | `historian status` | Provider, iterations, last documented, pending changes, paused |
 | `/historian-pause` | `historian pause` | Stop recording until resumed |
 | `/historian-resume` | `historian resume` | Resume recording |
-| `/historian-finalize` | `historian finalize` | Generate PROJECT_ARCHITECTURE / KNOWLEDGE_BASE / WORKFLOW docs |
+| `/historian-finalize` | `historian finalize` | Generate PROJECT_ARCHITECTURE / KNOWLEDGE_BASE / SUMMARY docs |
 
 ## Providers & configuration
 
@@ -77,7 +81,9 @@ Presets (change `command`/`args` only):
 ```
 
 Other keys: `timeout_sec`, `retry_cap`, `diff_cap_bytes`, `skip_empty_iterations`,
-`docs_dir`, `implementation_file`, `prompt_template`, `exclude_globs`.
+`docs_dir` (default `historian-docs`), `implementation_file`, `prompt_template`,
+`exclude_globs`, and `stream` (default `true` — show the model's output live;
+set `false` to run quietly).
 
 ## Architecture (at a glance)
 
@@ -93,7 +99,7 @@ Other keys: `timeout_sec`, `retry_cap`, `diff_cap_bytes`, `skip_empty_iterations
 | `prompts/` | the iteration + finalize templates |
 
 Flow: `save` → `shadowgit.snapshot` → `collector.build_payload` → `document.generate`
-(→ provider) → append to `docs/implementation.md` → advance the snapshot.
+(→ provider) → append to `historian-docs/implementation.md` → advance the snapshot.
 
 ## Extending
 
@@ -106,8 +112,8 @@ Flow: `save` → `shadowgit.snapshot` → `collector.build_payload` → `documen
 Only the prompt and diff leave your machine (to the provider you configure).
 `exclude_globs` (default: `.env*`, `*.pem`, `*.key`, `*.pfx`, build dirs) keeps
 matching files out of the shadow repo, so they never appear in a diff or reach
-the provider. The historian's own `docs/` output is excluded too, so it never
-documents itself. For a fully local setup, point `provider` at Ollama or a local
+the provider. The historian's own `historian-docs/` output is excluded too, so it
+never documents itself. For a fully local setup, point `provider` at Ollama or a local
 API — no other change needed.
 
 ## Cross-platform

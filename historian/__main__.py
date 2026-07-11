@@ -24,8 +24,49 @@ COMMANDS = {
     "historian-status": ("status", "Show historian status (provider, iterations, pending changes, paused)"),
     "historian-pause": ("pause", "Pause the historian (stop recording iterations until resumed)"),
     "historian-resume": ("resume", "Resume the historian after a pause"),
-    "historian-finalize": ("finalize", "Generate PROJECT_ARCHITECTURE / KNOWLEDGE_BASE / WORKFLOW docs"),
+    "historian-finalize": ("finalize", "Generate PROJECT_ARCHITECTURE / KNOWLEDGE_BASE / SUMMARY docs"),
 }
+
+# Provider presets offered at install time. label -> config overrides (None = keep defaults).
+_DENY = '{"edit":"deny","bash":"deny","webfetch":"deny"}'
+PRESETS = {
+    "1": ("OpenCode + Nemotron (free)", {"provider": "cli", "command": "opencode",
+          "args": ["run", "-m", "opencode/nemotron-3-ultra-free"],
+          "model": "opencode/nemotron-3-ultra-free", "env": {"OPENCODE_PERMISSION": _DENY}}),
+    "2": ("Gemini CLI", {"provider": "cli", "command": "gemini",
+          "args": ["-m", "gemini-2.5-pro"], "model": "gemini-2.5-pro",
+          "env": {"GEMINI_CLI_TRUST_WORKSPACE": "true"}}),
+    "3": ("Ollama (local)", {"provider": "cli", "command": "ollama",
+          "args": ["run", "llama3.3"], "model": "llama3.3", "env": {}}),
+    "4": ("OpenAI API", {"provider": "api", "model": "gpt-4o-mini",
+          "api": {"base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY"}}),
+    "5": ("OpenRouter API", {"provider": "api", "model": "meta-llama/llama-3.3-70b-instruct",
+          "api": {"base_url": "https://openrouter.ai/api/v1", "api_key_env": "OPENROUTER_API_KEY"}}),
+    "6": ("Keep defaults / configure later", None),
+}
+
+
+def _choose_provider(reader=None, interactive=None):
+    """Return the config the user picks at install time (seeds the global default)."""
+    reader = reader or input
+    if interactive is None:
+        interactive = sys.stdin.isatty()
+    cfg = dict(config.DEFAULTS)
+    if not interactive:
+        print("non-interactive install; using default provider (OpenCode + Nemotron).")
+        return cfg
+    print("Which AI provider should Historian use to write your docs?\n")
+    for k in sorted(PRESETS):
+        print(f"  {k}) {PRESETS[k][0]}")
+    choice = (reader("\nEnter choice [1]: ") or "1").strip() or "1"
+    name, preset = PRESETS.get(choice, PRESETS["1"])
+    if preset:
+        cfg.update(preset)
+    print(f"\nselected: {name}")
+    if cfg.get("provider") == "api":
+        env_var = cfg.get("api", {}).get("api_key_env")
+        print(f"remember to set your API key:  set {env_var}=...   (and adjust 'model' in config if needed)")
+    return cfg
 
 
 def _ensure_claude_hooks(root):
@@ -61,26 +102,29 @@ def _command_md(sub, desc):
 
 
 def cmd_install():
-    """One-time global setup: provision the /historian* slash commands. The CLI
-    itself is put on PATH separately (pipx/pip); this just wires the commands."""
+    """One-time global setup: pick the default provider, save it as the global
+    default, and provision the /historian* slash commands. The CLI itself is put
+    on PATH separately (pipx/pip)."""
+    chosen = _choose_provider()
+    config.write_global(chosen)
     cmd_dir = Path(os.environ.get("HISTORIAN_COMMANDS_DIR") or (Path.home() / ".claude" / "commands"))
     cmd_dir.mkdir(parents=True, exist_ok=True)
     for name, (sub, desc) in COMMANDS.items():
         (cmd_dir / f"{name}.md").write_text(_command_md(sub, desc), encoding="utf-8")
+    print(f"\ndefault provider: {chosen.get('provider')} ({chosen.get('model')})")
+    print(f"saved global default to {config.global_config_path()}")
     print(f"installed {len(COMMANDS)} global commands to {cmd_dir}")
-    if shutil.which("historian"):
-        print("historian CLI found on PATH.")
-    else:
-        print("NOTE: 'historian' is not on PATH yet. Install the CLI once with:")
+    if not shutil.which("historian"):
+        print("NOTE: 'historian' is not on PATH yet - install the CLI once with:")
         print("    pipx install <path-to-historian-repo>   (or: pip install <path>)")
-    print("Then run 'historian init' (or /historian) in any repository.")
+    print("Run 'historian init' (or /historian) in any repo. Override per repo in .historian/config.json.")
     return 0
 
 
 def cmd_init():
     root = Path.cwd()
     p = config.paths(root)
-    config.ensure_layout(p)
+    config.ensure_layout(p, base=config.load_global())  # seed from install-time default
     cfg = config.load(p)
     config.write_excludes(p, config.effective_excludes(cfg))
     _ensure_claude_hooks(root)

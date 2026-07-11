@@ -20,7 +20,7 @@ _SOURCE_EXT = {".py", ".js", ".ts", ".tsx", ".jsx", ".md", ".json", ".txt",
 _DOCS = {
     "architecture.md": "PROJECT_ARCHITECTURE.md",
     "knowledge_base.md": "KNOWLEDGE_BASE.md",
-    "workflow.md": "WORKFLOW.md",
+    "summary.md": "SUMMARY.md",
 }
 
 

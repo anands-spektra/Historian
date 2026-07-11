@@ -13,10 +13,11 @@ you run **`/historian-save "what you built"`**. The historian:
 1. Snapshots your files into a private *shadow* git repo (your real git is untouched).
 2. Diffs against the previous save.
 3. Sends the diff + your prompts to a model **you choose** (OpenCode, Gemini, Ollama, OpenAI, …).
-4. Appends a senior-engineer-style entry to `docs/implementation.md`.
+4. Appends a senior-engineer-style entry to `historian-docs/implementation.md`
+   — and you watch the model write it live in your terminal.
 
 When the project matures, **`/historian-finalize`** produces
-`PROJECT_ARCHITECTURE.md`, `KNOWLEDGE_BASE.md`, and `WORKFLOW.md`.
+`PROJECT_ARCHITECTURE.md`, `KNOWLEDGE_BASE.md`, and a plain-language `SUMMARY.md`.
 
 Nothing is automatic — *you* decide when a milestone is worth recording.
 
@@ -39,10 +40,25 @@ Nothing is automatic — *you* decide when a milestone is worth recording.
 
 ```
 pipx install "C:\path\to\gemini"     # the historian repo folder; puts `historian` on PATH
-historian install                     # provisions the /historian* slash commands globally
+historian install                     # interactive: pick your default provider + install commands
 ```
 
-`historian install` writes the slash commands to `~/.claude/commands/`. Verify:
+`historian install` asks which provider to use as your machine-wide default:
+
+```
+Which AI provider should Historian use to write your docs?
+  1) OpenCode + Nemotron (free)
+  2) Gemini CLI
+  3) Ollama (local)
+  4) OpenAI API
+  5) OpenRouter API
+  6) Keep defaults / configure later
+Enter choice [1]:
+```
+
+Your pick is saved as the global default (`~/.claude/historian/config.json`) and
+every repo you `init` inherits it. It then writes the slash commands to
+`~/.claude/commands/`. Verify:
 
 ```
 historian --help          # should print the usage line
@@ -64,9 +80,11 @@ From inside the project you want to document:
 historian init          # or type /historian in Claude Code
 ```
 
-This creates a `.historian/` folder (shadow repo, config, state), a `docs/`
-folder for output, and adds a passive prompt-capture hook to
-`.claude/settings.json`.
+This creates a `.historian/` folder (shadow repo, config, state), a
+`historian-docs/` folder for output (named so it won't clash with your own
+`docs/`), and adds a passive prompt-capture hook to `.claude/settings.json`. The
+repo's config is seeded from the provider you chose at install time; edit
+`.historian/config.json` to override it just for this repo.
 
 > **Restart your Claude Code session after the first `init`.** Claude reads hook
 > config at startup, so the prompt-capture hook only becomes active in a fresh
@@ -84,7 +102,7 @@ folder for output, and adds a passive prompt-capture hook to
 | Check state | `/historian-status` | Provider, iterations, **pending changes**, paused? |
 | Pause recording | `/historian-pause` | `save` does nothing until resumed |
 | Resume | `/historian-resume` | |
-| Generate final docs | `/historian-finalize` | Architecture / knowledge-base / workflow |
+| Generate final docs | `/historian-finalize` | Architecture / knowledge-base / plain-language summary |
 
 Every slash command has a CLI equivalent (`historian save "…"`, `historian
 status`, etc.) if you'd rather run it in a terminal.
@@ -102,11 +120,12 @@ status`, etc.) if you'd rather run it in a terminal.
 
 # ... project done ...
 /historian-finalize
-# -> docs/PROJECT_ARCHITECTURE.md, KNOWLEDGE_BASE.md, WORKFLOW.md
+# -> historian-docs/PROJECT_ARCHITECTURE.md, KNOWLEDGE_BASE.md, SUMMARY.md
 ```
 
-Output lands in `docs/` in the project. `docs/implementation.md` grows one
-"## Iteration N: <title>" section per save.
+Output lands in `historian-docs/` in the project. `historian-docs/implementation.md`
+grows one "## Iteration N: <title>" section per save. As each save/finalize runs,
+the model's output streams live in your terminal so you can judge it in real time.
 
 ---
 
@@ -222,7 +241,8 @@ In `.historian/config.json` (all optional; sensible defaults):
 | `retry_cap` | `3` | Attempts (with 2/8/30s backoff) before giving up |
 | `diff_cap_bytes` | `200000` | Diff size before truncation (diffstat is always kept) |
 | `skip_empty_iterations` | `true` | `save` is a no-op when nothing changed |
-| `docs_dir` / `implementation_file` | `docs` / `implementation.md` | Where output goes |
+| `docs_dir` / `implementation_file` | `historian-docs` / `implementation.md` | Where output goes |
+| `stream` | `true` | Show the model's output live in the terminal (set `false` to run quietly) |
 | `prompt_template` | `iteration.md` | Which template drives each entry |
 | `exclude_globs` | secrets + build dirs | Files never captured or sent (see §9) |
 

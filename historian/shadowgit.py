@@ -31,8 +31,24 @@ def init(paths):
     _git(paths, "config", "core.excludesFile", str(paths.shadow_excludes.resolve()))
 
 
+# Git's canonical empty-tree hash — diff base when an iteration has no predecessor.
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
 def head(paths):
     return _git(paths, "rev-parse", "HEAD")
+
+
+def diff(paths, a, b):
+    return _git(paths, "diff", a, b)
+
+
+def name_status(paths, a, b):
+    return _git(paths, "diff", "--name-status", a, b)
+
+
+def diffstat(paths, a, b):
+    return _git(paths, "diff", "--stat", a, b)
 
 
 def snapshot(paths, message):

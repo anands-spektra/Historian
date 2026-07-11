@@ -45,12 +45,13 @@ def cmd_init():
     config.ensure_layout(p)
     cfg = config.load(p)
     config.write_excludes(p, cfg["exclude_globs"])
-    if not shadowgit.is_initialized(p):
-        shadowgit.init(p)
-    sha = shadowgit.snapshot(p, "historian: init baseline")
-    config.update_state(p, last_shadow_commit=sha)
     _ensure_claude_hooks(root)
     _ensure_gitignore(root)
+    if not shadowgit.is_initialized(p):
+        shadowgit.init(p)
+    # snapshot last so the baseline captures the fully-initialized project
+    sha = shadowgit.snapshot(p, "historian: init baseline")
+    config.update_state(p, last_shadow_commit=sha)
     print(f"historian initialized at {p.historian}")
     print(f"shadow baseline commit: {sha[:10]}")
     return 0

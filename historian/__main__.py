@@ -95,6 +95,26 @@ def cmd_save(title):
     return 0
 
 
+def cmd_pause():
+    p = config.paths(config.find_root())
+    if not p.historian.exists():
+        print("historian not initialized here (run: python -m historian init)")
+        return 1
+    config.update_state(p, paused=True)
+    print("historian paused - /historian-save will do nothing until resumed")
+    return 0
+
+
+def cmd_resume():
+    p = config.paths(config.find_root())
+    if not p.historian.exists():
+        print("historian not initialized here (run: python -m historian init)")
+        return 1
+    config.update_state(p, paused=False)
+    print("historian resumed")
+    return 0
+
+
 def cmd_status():
     p = config.paths(config.find_root())
     if not p.historian.exists():
@@ -102,11 +122,19 @@ def cmd_status():
         return 1
     cfg = config.load(p)
     state = config.read_state(p)
+    print(f"repository        : {p.root}")
     print(f"provider          : {cfg.get('provider')} ({cfg.get('model')})")
     print(f"iterations saved  : {state.get('iteration', 0)}")
     print(f"last documented   : {state.get('last_documented', 0)}")
     print(f"paused            : {'yes' if state.get('paused') else 'no'}")
     print(f"last error        : {state.get('last_error') or 'none'}")
+    if shadowgit.is_initialized(p):
+        pending = [ln for ln in shadowgit.status(p).splitlines() if ln.strip()]
+        print(f"pending changes   : {len(pending)} file(s) since last save")
+        for ln in pending[:20]:
+            print(f"    {ln}")
+        if len(pending) > 20:
+            print(f"    ... and {len(pending) - 20} more")
     return 0
 
 
@@ -130,12 +158,17 @@ def main(argv=None):
         return cmd_save(" ".join(argv[1:]).strip() or None)
     if cmd == "status":
         return cmd_status()
+    if cmd == "pause":
+        return cmd_pause()
+    if cmd == "resume":
+        return cmd_resume()
     if cmd == "finalize":
         from . import finalize
         return finalize.run()
     if cmd == "hook":
         return cmd_hook(argv[1] if len(argv) > 1 else "")
-    print("usage: python -m historian {init|save [title]|status|finalize|hook <event>}", file=sys.stderr)
+    print("usage: python -m historian {init|save [title]|status|pause|resume|finalize|hook <event>}",
+          file=sys.stderr)
     return 2
 
 

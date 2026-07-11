@@ -51,6 +51,12 @@ def diffstat(paths, a, b):
     return _git(paths, "diff", "--stat", a, b)
 
 
+def status(paths):
+    """Porcelain status of the work tree vs the last snapshot (respects excludes).
+    Lists uncommitted/untracked changes without mutating anything."""
+    return _git(paths, "status", "--porcelain")
+
+
 def snapshot(paths, message):
     """Stage everything (minus excludes) and commit. --allow-empty so an
     iteration with no file changes still records a commit. Returns the sha."""

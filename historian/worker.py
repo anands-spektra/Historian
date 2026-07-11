@@ -4,10 +4,15 @@ lockfile. Append-only; never rewrites prior sections."""
 
 import json
 import os
+import time
+from pathlib import Path
 
 from . import collector, config
 from .log import get_logger
 from .providers import get_provider
+
+_TEMPLATE = Path(__file__).parent / "prompts" / "iteration.md"
+_BACKOFF = [2, 8, 30]  # seconds between provider retries
 
 
 def _acquire(paths):
@@ -28,19 +33,46 @@ def _release(paths):
         pass
 
 
-def _build_prompt(payload):
-    """Serialize the payload for the provider. Phase 5 replaces this with a
-    real template render."""
-    lines = [f"Iteration {payload['iteration']} at {payload['ts']}", "",
-             "User prompt(s):"]
-    lines += [f"- {p}" for p in payload["prompts"]] or ["- (none)"]
+def _format_files(files):
+    out = []
     for label, key in (("Created", "created"), ("Modified", "modified"),
                        ("Deleted", "deleted"), ("Renamed", "renamed")):
-        items = payload["files"].get(key) or []
-        if items:
-            lines.append(f"\n{label}: " + ", ".join(items))
-    lines += ["", "Diffstat:", payload["diffstat"], "", "Diff:", payload["diff"]]
-    return "\n".join(lines)
+        items = files.get(key) or []
+        out.append(f"{label}: " + (", ".join(items) if items else "none"))
+    return "\n".join(out)
+
+
+def _render_prompt(payload):
+    """Fill the iteration template. Uses str.replace (not .format) because
+    diffs contain braces."""
+    tpl = _TEMPLATE.read_text(encoding="utf-8")
+    prompts = "\n".join(f"- {p}" for p in payload["prompts"]) or "- (none)"
+    note = ("\n(NOTE: diff truncated due to size — rely on the diffstat and file "
+            "lists for the rest.)") if payload["truncated"] else ""
+    repl = {
+        "[[ITERATION]]": str(payload["iteration"]),
+        "[[TIMESTAMP]]": str(payload["ts"]),
+        "[[PROMPTS]]": prompts,
+        "[[FILES]]": _format_files(payload["files"]),
+        "[[DIFFSTAT]]": payload["diffstat"] or "(none)",
+        "[[DIFF]]": payload["diff"] or "(no diff)",
+        "[[TRUNCATED_NOTE]]": note,
+    }
+    for k, v in repl.items():
+        tpl = tpl.replace(k, v)
+    return tpl
+
+
+def _analyze_with_retry(provider, prompt, cfg, log, iteration):
+    attempts = max(1, cfg.get("retry_cap", 3))
+    for i in range(attempts):
+        try:
+            return provider.analyze(prompt, cfg)
+        except Exception as e:
+            log.error(f"iteration {iteration} provider attempt {i + 1}/{attempts} failed: {e}")
+            if i + 1 >= attempts:
+                raise
+            time.sleep(_BACKOFF[min(i, len(_BACKOFF) - 1)])
 
 
 def _append_section(paths, cfg, payload, analysis):
@@ -64,31 +96,23 @@ def _process(paths, cfg, provider, ev_path, log):
         log.info(f"iteration {iteration} has no changes; skipping")
         ev_path.unlink()
         return
-    analysis = provider.analyze(_build_prompt(payload), cfg)
-    # ponytail: append -> mark -> ack. A crash between append and mark can dup
-    # a section; preferred over the alternative (marking first) which could drop one.
+    analysis = _analyze_with_retry(provider, _render_prompt(payload), cfg, log, iteration)
+    # ponytail: append -> mark -> ack. A crash between append and mark can dup a
+    # section; preferred over marking first, which could drop one.
     _append_section(paths, cfg, payload, analysis)
     config.update_state(paths, last_documented=iteration, last_error=None)
     ev_path.unlink()
     log.info(f"iteration {iteration} documented")
 
 
-def _handle_failure(paths, cfg, ev_path, err, log):
-    try:
-        event = json.loads(ev_path.read_text(encoding="utf-8"))
-    except Exception:
-        event = {}
-    retries = event.get("_retries", 0) + 1
-    log.error(f"iteration {event.get('iteration', '?')} failed (attempt {retries}): {err}")
+def _dead_letter(paths, ev_path, err, log):
     config.update_state(paths, last_error=str(err))
-    if retries >= cfg.get("retry_cap", 3):
-        paths.dead.mkdir(parents=True, exist_ok=True)
+    paths.dead.mkdir(parents=True, exist_ok=True)
+    try:
         ev_path.rename(paths.dead / ev_path.name)
-        log.error(f"iteration {event.get('iteration', '?')} dead-lettered after {retries} attempts")
-        return "dead"
-    event["_retries"] = retries
-    ev_path.write_text(json.dumps(event, indent=2), encoding="utf-8")
-    return "retry"
+    except FileNotFoundError:
+        pass
+    log.error(f"dead-lettered {ev_path.name}: {err}")
 
 
 def _drain(paths, log):
@@ -102,8 +126,10 @@ def _drain(paths, log):
         try:
             _process(paths, cfg, provider, ev_path, log)
         except Exception as e:
-            if _handle_failure(paths, cfg, ev_path, e, log) == "retry":
-                break  # keep order; next spawn retries this event
+            # retries are exhausted (in _analyze_with_retry) -> dead-letter and stop
+            # this run so we don't churn the rest of the queue on a down provider.
+            _dead_letter(paths, ev_path, e, log)
+            break
 
 
 def run():

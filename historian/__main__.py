@@ -27,22 +27,26 @@ COMMANDS = {
     "historian-finalize": ("finalize", "Generate PROJECT_ARCHITECTURE / KNOWLEDGE_BASE / SUMMARY docs"),
 }
 
-# Provider presets offered at install time. label -> config overrides (None = keep defaults).
+# Provider presets offered at install time: CLI/API tool choice only. The model
+# is a separate prompt (any provider can be paired with any model - a hardcoded
+# model per preset would go stale, e.g. assuming everyone runs Nemotron on OpenCode).
 _DENY = '{"edit":"deny","bash":"deny","webfetch":"deny"}'
 PRESETS = {
-    "1": ("OpenCode + Nemotron (free)", {"provider": "cli", "command": "opencode",
-          "args": ["run", "-m", "opencode/nemotron-3-ultra-free"],
-          "model": "opencode/nemotron-3-ultra-free", "env": {"OPENCODE_PERMISSION": _DENY}}),
+    "1": ("OpenCode", {"provider": "cli", "command": "opencode",
+          "env": {"OPENCODE_PERMISSION": _DENY}},
+          lambda model: ["run", "-m", model], "opencode/nemotron-3-ultra-free"),
     "2": ("Gemini CLI", {"provider": "cli", "command": "gemini",
-          "args": ["-m", "gemini-2.5-pro"], "model": "gemini-2.5-pro",
-          "env": {"GEMINI_CLI_TRUST_WORKSPACE": "true"}}),
-    "3": ("Ollama (local)", {"provider": "cli", "command": "ollama",
-          "args": ["run", "llama3.3"], "model": "llama3.3", "env": {}}),
-    "4": ("OpenAI API", {"provider": "api", "model": "gpt-4o-mini",
-          "api": {"base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY"}}),
-    "5": ("OpenRouter API", {"provider": "api", "model": "meta-llama/llama-3.3-70b-instruct",
-          "api": {"base_url": "https://openrouter.ai/api/v1", "api_key_env": "OPENROUTER_API_KEY"}}),
-    "6": ("Keep defaults / configure later", None),
+          "env": {"GEMINI_CLI_TRUST_WORKSPACE": "true"}},
+          lambda model: ["-m", model], "gemini-2.5-pro"),
+    "3": ("Ollama (local)", {"provider": "cli", "command": "ollama", "env": {}},
+          lambda model: ["run", model], "llama3.3"),
+    "4": ("OpenAI API", {"provider": "api",
+          "api": {"base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY"}},
+          None, "gpt-4o-mini"),
+    "5": ("OpenRouter API", {"provider": "api",
+          "api": {"base_url": "https://openrouter.ai/api/v1", "api_key_env": "OPENROUTER_API_KEY"}},
+          None, "meta-llama/llama-3.3-70b-instruct"),
+    "6": ("Keep defaults / configure later", None, None, None),
 }
 
 
@@ -53,15 +57,19 @@ def _choose_provider(reader=None, interactive=None):
         interactive = sys.stdin.isatty()
     cfg = dict(config.DEFAULTS)
     if not interactive:
-        print("non-interactive install; using default provider (OpenCode + Nemotron).")
+        print("non-interactive install; using default provider (OpenCode).")
         return cfg
     print("Which AI provider should Historian use to write your docs?\n")
     for k in sorted(PRESETS):
         print(f"  {k}) {PRESETS[k][0]}")
     choice = (reader("\nEnter choice [1]: ") or "1").strip() or "1"
-    name, preset = PRESETS.get(choice, PRESETS["1"])
+    name, preset, args_builder, default_model = PRESETS.get(choice, PRESETS["1"])
     if preset:
         cfg.update(preset)
+        model = (reader(f"Model name [{default_model}]: ") or "").strip() or default_model
+        cfg["model"] = model
+        if args_builder:
+            cfg["args"] = args_builder(model)
     print(f"\nselected: {name}")
     if cfg.get("provider") == "api":
         env_var = cfg.get("api", {}).get("api_key_env")

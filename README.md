@@ -8,6 +8,36 @@ architecture / knowledge-base / summary docs. The goal is to capture *what
 changed and why* without spending your coding assistant's tokens explaining it.
 You watch the model write each entry live in your terminal.
 
+## The problem it solves
+
+Documentation normally loses to whichever is true that day: it's written by
+hand and goes stale, or it's written by the same coding assistant that just
+wrote the code — which burns its context/tokens narrating instead of building,
+and only happens if you remember to ask. Neither gives you a running, honest
+log of *what changed and why* tied to milestones you actually care about
+(not noisy per-commit chatter), and neither gives a newcomer a single
+up-to-date architecture doc once the project has grown past the first sprint.
+
+Historian offloads all of that to a **second, separately configured model**
+(free/local by default), triggered **manually** — so it never taxes your
+coding assistant's budget and never runs without you asking for it.
+
+## How it works
+
+1. `historian save "title"` snapshots your working tree into a private
+   **shadow git repo** — independent of your real git, no commits required.
+2. It diffs that snapshot against the previous save.
+3. It bundles the diff, diffstat, changed-file list, and (if the passive
+   prompt hook is active) your recent prompts into one payload.
+4. That payload is sent to whichever model you configured (OpenCode, Gemini
+   CLI, Ollama, OpenAI, OpenRouter, or a custom command) — you watch its
+   output stream live in your terminal.
+5. The model's write-up is appended as one `## Iteration N` section to
+   `historian-docs/implementation.md`.
+6. `historian finalize` re-reads the whole iteration log plus a capped
+   source-file tree and makes three more model calls to produce
+   `PROJECT_ARCHITECTURE.md`, `KNOWLEDGE_BASE.md`, and `SUMMARY.md`.
+
 - **Manual, milestone-based** — you decide when an iteration is worth recording.
 - **Provider-agnostic** — OpenCode, Gemini CLI, Ollama, OpenAI/OpenRouter, or any custom command. Configured, not hard-coded.
 - **Local & git-independent** — a private *shadow* git repo captures changes; you never have to commit.
@@ -19,9 +49,16 @@ pipx install <path-to-this-repo>     # puts the `historian` CLI on PATH
 historian install                    # provisions the /historian* slash commands globally
 ```
 
-`historian install` **asks which AI provider to use** (OpenCode, Gemini, Ollama,
-OpenAI, OpenRouter, or configure-later), saves it as your machine-wide default,
-and writes the slash commands to `~/.claude/commands/` (override with
+`historian install` walks you through two prompts:
+
+1. **Pick a provider/tool** — OpenCode, Gemini CLI, Ollama, OpenAI API,
+   OpenRouter API, or configure-later.
+2. **Enter the model name** to use with that tool — a suggested default is
+   shown (e.g. `opencode/nemotron-3-ultra-free` for OpenCode); press Enter to
+   accept it or type any other model that tool supports.
+
+The result is saved as your machine-wide default (`~/.claude/historian/config.json`),
+and the slash commands are written to `~/.claude/commands/` (override with
 `HISTORIAN_COMMANDS_DIR`). You only do this once per machine. Every repo you
 `init` inherits that default and can override it in its own `.historian/config.json`.
 
@@ -65,13 +102,14 @@ providers cover almost everything:
   "env": { "OPENCODE_PERMISSION": "{\"edit\":\"deny\",\"bash\":\"deny\"}" } }
 ```
 
-Presets (change `command`/`args` only):
+Presets (`historian install` builds `args` from the model name you type; edit
+`command`/`args`/`model` directly to change tool or model later):
 
 | Tool | command | args |
 |---|---|---|
 | OpenCode | `opencode` | `["run","-m","<model>"]` |
-| Gemini CLI | `gemini` | `["-m","gemini-2.5-pro","-p"]` |
-| Ollama | `ollama` | `["run","llama3.3"]` |
+| Gemini CLI | `gemini` | `["-m","<model>"]` |
+| Ollama | `ollama` | `["run","<model>"]` |
 
 **`api`** — OpenAI-compatible HTTP (OpenAI, OpenRouter, Ollama `/v1`):
 

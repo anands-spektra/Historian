@@ -5,7 +5,17 @@ CLI/API you have, and document your coding milestones on demand.
 
 ---
 
-## 1. What it does (30 seconds)
+## 1. The problem, and what it does
+
+Docs written by hand go stale. Docs written by your coding assistant burn its
+context/tokens narrating instead of building, and only happen if you remember
+to ask. Either way you don't get an honest, running record of *what changed
+and why* — or a single up-to-date architecture doc once the project outgrows
+the first sprint.
+
+Historian fixes this by handing the writing to a **second, separately
+configured model** (free/local by default) that you trigger **manually** —
+it never spends your coding assistant's budget and never runs on its own.
 
 You code with Claude Code (or anything). When you finish something meaningful,
 you run **`/historian-save "what you built"`**. The historian:
@@ -43,21 +53,29 @@ pipx install "C:\path\to\gemini"     # the historian repo folder; puts `historia
 historian install                     # interactive: pick your default provider + install commands
 ```
 
-`historian install` asks which provider to use as your machine-wide default:
+`historian install` asks two questions to build your machine-wide default:
+first which provider/tool, then which model to run on it.
 
 ```
 Which AI provider should Historian use to write your docs?
-  1) OpenCode + Nemotron (free)
+  1) OpenCode
   2) Gemini CLI
   3) Ollama (local)
   4) OpenAI API
   5) OpenRouter API
   6) Keep defaults / configure later
-Enter choice [1]:
+Enter choice [1]: 1
+
+Model name [opencode/nemotron-3-ultra-free]:
 ```
 
-Your pick is saved as the global default (`~/.claude/historian/config.json`) and
-every repo you `init` inherits it. It then writes the slash commands to
+The bracketed value is just a suggested default (shown per tool) — press
+Enter to accept it, or type any other model that tool supports (e.g.
+`opencode/claude-3.5-sonnet`, `gemini-2.0-flash`, `llama3.1`). Nothing is
+hard-coded to one model; whoever installs it picks their own.
+
+Your picks are saved as the global default (`~/.claude/historian/config.json`)
+and every repo you `init` inherits it. It then writes the slash commands to
 `~/.claude/commands/`. Verify:
 
 ```
@@ -146,7 +164,8 @@ echo "Reply with OK" | <command> <args>
 
 If that prints text, it will work as a provider.
 
-**OpenCode + Nemotron (free)** — the default:
+**OpenCode** — suggested model is Nemotron (free), but any model OpenCode
+supports works, just swap the `-m` value:
 ```jsonc
 {
   "provider": "cli",
